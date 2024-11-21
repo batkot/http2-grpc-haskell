@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE PackageImports      #-}
+{-# LANGUAGE CPP      #-}
 
 -- | A module adding support for gRPC over HTTP2.
 --
@@ -85,6 +86,7 @@ import Control.Concurrent.Async.Lifted (concurrently)
 import Control.Exception (SomeException, Exception(..), throwIO)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Lazy (toStrict)
+import Data.Bifunctor (first)
 import Data.Binary.Builder (toLazyByteString)
 import Data.Binary.Get (Decoder(..), pushChunk, pushEndOfInput)
 import qualified Data.ByteString.Char8 as ByteString
@@ -100,7 +102,11 @@ import Network.HPACK
 import "http2-client" Network.HTTP2.Client hiding (next)
 import Network.HTTP2.Client.Helpers
 
+#if MIN_VERSION_http2(5,2,0)
+type CIHeaderList = HeaderList
+#else
 type CIHeaderList = [(CI ByteString, ByteString)]
+#endif
 
 -- | A reply.
 --
@@ -149,7 +155,11 @@ waitReply conn rpc decoding stream flowControl =
        return (hdrs2, trls2, res)
 
 headerstoCIHeaders :: HeaderList -> CIHeaderList
+#if MIN_VERSION_http2(5,2,0)
+headerstoCIHeaders = id
+#else
 headerstoCIHeaders hdrs = [(CI.mk k, v) | (k,v) <- hdrs]
+#endif
 
 -- | Exception raised when a ServerStreaming RPC results in a decoding
 -- error.
@@ -194,10 +204,10 @@ open conn authority extraheaders timeout encoding decoding call = do
     let request = [ (":method", "POST")
                   , (":scheme", "http")
                   , (":authority", authority)
-                  , (":path", path rpc) 
-                  , (CI.original grpcTimeoutH, showTimeout timeout)
-                  , (CI.original grpcEncodingH, grpcCompressionHV compress)
-                  , (CI.original grpcAcceptEncodingH, mconcat [grpcAcceptEncodingHVdefault, ",", grpcCompressionHV decompress])
+                  , (":path", path rpc)
+                  , (grpcTimeoutH, showTimeout timeout)
+                  , (grpcEncodingH, grpcCompressionHV compress)
+                  , (grpcAcceptEncodingH, mconcat [grpcAcceptEncodingHVdefault, ",", grpcCompressionHV decompress])
                   , ("content-type", grpcContentTypeHV)
                   , ("te", "trailers")
                   ] <> extraheaders
@@ -440,7 +450,7 @@ data OutgoingEvent i b =
 -- One loop accepts and chunks messages from the HTTP2 stream, then return events
 -- and stops on Trailers or Invalid. The other loop waits for messages to send to
 -- the server or finalize and returns.
-generalHandler 
+generalHandler
   :: (GRPCInput r i, GRPCOutput r o)
   => r
   -- ^ RPC to call.

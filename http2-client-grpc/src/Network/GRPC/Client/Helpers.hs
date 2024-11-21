@@ -33,7 +33,7 @@ import Data.Monoid ((<>))
 #endif
 
 import "http2-client" Network.HTTP2.Client (frameHttp2RawConnection, ClientIO, ClientError, newHttp2FrameConnection, newHttp2Client, Http2Client(..), IncomingFlowControl(..), GoAwayHandler, FallBackFrameHandler, ignoreFallbackHandler, HostName, PortNumber, TooMuchConcurrency)
-import Network.HTTP2.Client.Helpers (ping)
+import Network.HTTP2.Client.Helpers as H
 import Network.HTTP2.Client.RawConnection (newRawHttp2ConnectionSocket, newRawHttp2ConnectionUnix)
 import Network.GRPC.Client
 import Network.GRPC.HTTP2.Encoding
@@ -46,7 +46,7 @@ data GrpcClient = GrpcClient {
   -- ^ Underlying HTTP2 client.
   , _grpcClientAuthority   :: Authority
   -- ^ Authority header of the server the client is connected to.
-  , _grpcClientHeaders     :: [(ByteString, ByteString)]
+  , _grpcClientHeaders     :: HeaderList
   -- ^ Extra HTTP2 headers to pass to every call (e.g., authentication tokens).
   , _grpcClientTimeout     :: Timeout
   -- ^ Timeout for RPCs.
@@ -73,7 +73,7 @@ data Address = AddressTCP HostName PortNumber
 data GrpcClientConfig = GrpcClientConfig {
     _grpcClientConfigAddress         :: !Address
   -- ^ Address of the server
-  , _grpcClientConfigHeaders         :: ![(ByteString, ByteString)]
+  , _grpcClientConfigHeaders         :: !HeaderList
   -- ^ Extra HTTP2 headers to pass to every call (e.g., authentication tokens).
   , _grpcClientConfigTimeout         :: !Timeout
   -- ^ Timeout for RPCs.
@@ -139,7 +139,7 @@ setupGrpcClient config = do
       _updateWindow $ _incomingFlowControl cli
   pingAsync <- async $ forever $ do
       threadDelay $ _grpcClientConfigPingDelay config
-      ping cli 3000000 "grpc.hs"
+      H.ping cli 3000000 "grpc.hs"
   let tasks = BackgroundTasks wuAsync pingAsync
   return $ GrpcClient cli authority headers timeout compression tasks
 
